@@ -24,6 +24,7 @@ from fastapi import FastAPI, Header, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
+from .actors import ActorRegistry
 from .anchor import HeadAnchor
 from .config import Settings
 from .models import Decision
@@ -143,6 +144,16 @@ def create_app(settings: Optional[Settings] = None, seed: bool = True) -> FastAP
     @app.get("/receipts")
     def receipts() -> list[dict[str, Any]]:
         return proxy().registry.entries
+
+    @app.get("/actors")
+    def actors() -> dict[str, Any]:
+        """Who stands at the gate, by class, and what each may never call.
+
+        The register is the answer to "this agent cannot": it is not a permission view of the
+        user, it is a limit on the actor, and it is checked before the warrant is read.
+        """
+        p = proxy()
+        return {"kinds": ActorRegistry.kinds(), "actors": p.actors.listing()}
 
     @app.get("/warrants")
     def warrants() -> list[dict[str, Any]]:

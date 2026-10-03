@@ -4,7 +4,7 @@ A proxy that sits in front of an MCP server and decides **before execution** whe
 agent's tool-call is allowed. Not a dashboard about agents — the thing that stops them.
 
 ```
-order  ->  policy on parameters  ->  brake  ->  receipt
+identity  ->  actor class  ->  order  ->  policy on parameters  ->  brake  ->  receipt
 ```
 
 Every call carries an ephemeral identity bound to a signed *warrant* (scope + TTL +
@@ -126,10 +126,46 @@ python3 scripts/console_check.py                       # 35 checks, exits non-ze
 python3 scripts/console_shot.py --outdir state/shots   # console-live.png from a live node
 ```
 
+## The actor register — `this agent cannot`
+
+The warrant answers *what was this call authorised to do*. The register answers the earlier
+question: **may this kind of actor stand at the gate at all** — independently of the rights
+of the user on whose behalf it acts.
+
+That distinction is the whole point. An operator with full entitlement is still told no here,
+and so is the bank's own service identity: the limit is a property of the actor, not of the
+requester. A valid warrant for the same tool does not move it, because the register is read
+**before** the order is.
+
+Four classes, because four kinds of actor reach the gate today:
+
+| Class | Who that is |
+|---|---|
+| `operator-human` | a person at the console |
+| `autonomous-system` | a scheduled loop acting for a group of agents |
+| `chatbot` | a conversational front end |
+| `mcp-supplier` | a third-party connector offered by a server vendor |
+
+Limits are glob-aware (`crm.*`) and may also name **data classes** the actor is not entitled
+to at all (`pesel`, `card`, `iban`) — a vendor's connector may call its own catalogue and
+still be stopped by `pesel` in the arguments.
+
+A refusal here is not a failure, it is the answer: it is written to the same hash-chained
+registry as an allow, with a reason a human can read and hand to someone else —
+
+```
+actor-class limit · chatbot 'support-copilot' may never call infra.deploy (rule 'infra.*')
+· the limit is on the actor, not on the rights of the user on whose behalf it acts
+```
+
+`tests/test_actors.py` holds the proof that matters: same agent, same signed warrant, same
+parameters — change only the actor's class and the answer flips from `allow` to `deny`.
+
 ## The four bricks, and where each lives
 
 | Brick | What it means | Where |
 |---|---|---|
+| **0. Actor register** | what this *class* of actor may never call, whatever the user's rights are | `warrnt/actors.py`, `GET /actors` |
 | **1. Order** | signed identity: scope + TTL + signature | `warrnt/warrants.py`, `GET /warrants` returns `sig_ok` |
 | **2. Pre-exec policy** | guards on the call's parameters, verified order first | `warrnt/policy.py`, seeded rules in `warrnt/seed.py` |
 | **3. Brake** | pull the warrant, halt the agent chain | `POST /revoke`, `MCPProxy.revoke` |
@@ -146,6 +182,7 @@ python3 scripts/console_shot.py --outdir state/shots   # console-live.png from a
 | `GET` | `/state` | live contract (agents, warrants, receipts, executor calls, chain) |
 | `GET` | `/warrants` | signed artifacts + per-warrant signature validity |
 | `GET` | `/receipts` | the full append-only registry |
+| `GET` | `/actors` | who stands at the gate, by class, and what each may never call |
 | `GET` | `/verify` | recompute the chain from genesis (plus the anchor verdict) |
 | `GET` | `/anchor` | the last signed head and whether the live registry still matches it |
 | `GET` | `/agents` | identities (tokens only when `WARRNT_DEV=1`) |
@@ -158,7 +195,7 @@ Denials come back as JSON-RPC errors, and nothing runs:
 
 | decision | code | meaning |
 |---|---|---|
-| `deny` | `-32001` | outside warrant scope, a guard failed, or the order's signature is invalid |
+| `deny` | `-32001` | the actor class forbids this tool, or the call is outside the warrant's scope, or a guard failed, or the order's signature is invalid |
 | `human` | `-32002` | require-human: pause, do not execute |
 | `revoked` | `-32003` | warrant pulled / agent halted |
 | `expired` | `-32004` | TTL elapsed |

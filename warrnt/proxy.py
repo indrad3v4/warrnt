@@ -1,4 +1,4 @@
-"""The node: identity -> order -> policy on parameters -> brake -> receipt.
+"""The node: identity -> actor class -> order -> policy on parameters -> brake -> receipt.
 
 :class:`MCPProxy` is the single object that decides. Everything the HTTP layer does is
 translate a request into a call here and serialise the answer.
@@ -8,6 +8,7 @@ from __future__ import annotations
 import time
 from typing import Any, Optional
 
+from .actors import ACTOR_SEED, ActorProfile, ActorRegistry
 from .models import AgentState, Decision, DECISION_TEXT, Warrant
 from .policy import PolicyEngine
 from .registry import AppendOnlyRegistry
@@ -36,10 +37,13 @@ def _receipt_row(entry: dict) -> dict[str, Any]:
 class MCPProxy:
     def __init__(self, issuer: WarrantIssuer, registry: AppendOnlyRegistry,
                  engine: Optional[PolicyEngine] = None, upstream=None,
-                 now=None):
+                 now=None, actors: Optional[list[ActorProfile]] = None):
         self.issuer = issuer
         self.registry = registry
         self.engine = engine or PolicyEngine()
+        # The register of actor classes. It answers the question the warrant cannot: may
+        # this kind of actor call this tool at all, whatever the user's rights are.
+        self.actors = ActorRegistry(actors if actors is not None else list(ACTOR_SEED))
         self.counter = ExecutionCounter()
         self.upstream = upstream or build_upstream(self.counter)
         self._now = now or time.time
@@ -93,7 +97,14 @@ class MCPProxy:
             decision, reason = Decision.revoked, f"agent halted · warrant {agent.warrant} pulled"
             detail = {"warrant": agent.warrant}
         else:
-            decision, reason, detail = self.engine.evaluate(warrant, tool, params)
+            # The actor register speaks before the order is read. A class limit is not a
+            # permission question about the user: a valid warrant for the same tool still
+            # does not move it, which is the point of keeping the two gates apart.
+            class_block = self.actors.check(agent_id, tool, params)
+            if class_block is not None:
+                decision, reason, detail = class_block
+            else:
+                decision, reason, detail = self.engine.evaluate(warrant, tool, params)
 
         agent.last = f"{tool} · {DECISION_TEXT.get(decision, decision.value)}"
         receipt = self._receipt(decision, agent_id, tool, agent.warrant, reason, params,
@@ -208,5 +219,6 @@ class MCPProxy:
         return {
             "revoked": self.stats["revoked"], "last_stop": self.stats["last_stop"],
             "agents": agents, "warrants": warrants, "receipts": receipts,
+            "actors": self.actors.listing(),
             "executor_calls": self.counter.snapshot(), "chain": self.registry.verify(),
         }
