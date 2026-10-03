@@ -8,10 +8,13 @@ from __future__ import annotations
 import json
 import os
 import time
+from pathlib import Path
 from typing import Any, Optional
 
 from . import gates as gate_registry
 from .breakglass import BreakGlassRegistry
+from .budget import BudgetLedger
+from .catalog import Catalog
 from .controlplane import ActionStore, HoldRefused, params_view
 from .gates import GateContext
 from .actions import listing as class_listing
@@ -20,6 +23,8 @@ from .models import AgentState, Decision, DECISION_TEXT, Warrant
 from .policy import PolicyEngine, strip_pii
 from .registry import AppendOnlyRegistry
 from .seed import SEED_SPECS
+from .semantic import SemanticJudge
+from .signatures import SignatureFeed
 from .upstream import ExecutionCounter, build_upstream
 from .warrants import WarrantIssuer, refresh_state, remaining
 
@@ -45,6 +50,7 @@ class MCPProxy:
     def __init__(self, issuer: WarrantIssuer, registry: AppendOnlyRegistry,
                  engine: Optional[PolicyEngine] = None, upstream=None,
                  now=None, actors: Optional[list[ActorProfile]] = None,
+                 catalog=None, budget=None, semantic=None,
                  store_dir: Optional[str] = None):
         self.issuer = issuer
         self.registry = registry
@@ -66,6 +72,18 @@ class MCPProxy:
         # adding a gate is adding a file under warrnt/plugins/, not editing this module.
         gate_registry.load()
         self._now = now or time.time
+        # The control catalog (D3) and the spend ledger (D7). The kernel holds them and passes
+        # them to the gates; it reads no setting and makes no decision of its own.
+        self.catalog = catalog if catalog is not None else Catalog.load()
+        self.budget = budget if budget is not None else BudgetLedger(self.catalog, now=self._now)
+        # The attack-signature feed (D8): outside the codebase, owned by operations, re-read the
+        # same way the catalog is. A feed that cannot be read is carried as an error rather than
+        # raised here - the gate that uses it decides what an unreadable feed means.
+        self.signatures = SignatureFeed.load(self._feed_path())
+        # The semantic judge (4.2). Built from the catalog's own block: model, endpoint, timeout.
+        # It is constructed even when the control is off - constructing it costs nothing, and the
+        # gate is what decides whether to ask. Nothing here reaches the network.
+        self.semantic = semantic if semantic is not None else SemanticJudge(**self._semantic_args())
         # Break-glass: the one thing that can lower a *policy* pause, and only that. It is
         # signed with the same key as an order, it is single-use, and it owes a review.
         self.breakglass = BreakGlassRegistry(sign=self.issuer.sign, now=self._now,
@@ -150,6 +168,7 @@ class MCPProxy:
         self.stats = {"revoked": 0, "last_stop": None, "stopped_agent": None}
         self._revoke_t0 = {}
         self.counter.clear()
+        self.budget.clear()
         # A reset re-issues the orders; an open bypass must not survive it.
         self.breakglass.grants.clear()
         self.breakglass._seq = 0
@@ -158,6 +177,23 @@ class MCPProxy:
         if not reset_registry:
             self._apply_revocations()
         return rotation
+
+    def _feed_path(self) -> str:
+        """The feed lives beside the catalog that names it, unless it is an absolute path."""
+        named = str(getattr(self.catalog, "signatures_path", "") or "").strip()
+        if not named:
+            return ""
+        path = Path(named)
+        catalog_path = getattr(self.catalog, "path", None)
+        if not path.is_absolute() and catalog_path is not None:
+            return str(Path(catalog_path).parent / path)
+        return str(path)
+
+    def _semantic_args(self) -> dict:
+        """Only the keys the judge knows; the catalog may carry more than the judge needs."""
+        block = dict(getattr(self.catalog, "semantic", None) or {})
+        allowed = {"model", "endpoint", "timeout_ms"}
+        return {k: v for k, v in block.items() if k in allowed}
 
     def _expire_holds_of_halted_agents(self) -> int:
         """A hold cannot outlive its order, across a restart too (R2).
@@ -221,10 +257,29 @@ class MCPProxy:
             # read in the order a person would ask them - what kind of act is this
             # (act_class), who is standing at the gate (actor_scope), what does the order
             # allow (order_policy) - and a class can only raise what follows it.
+            # D9: the catalog is re-read when its mtime moves, so an operator's edit is obeyed
+            # by the NEXT call. A parse happens only when the file actually changed.
+            self.catalog.reload()
+            # The feed follows the same discipline: re-read when its file moves, so a shape
+            # published five minutes ago is already in force on the next call (D9).
+            self.signatures.reload()
             ctx = GateContext(agent_id=agent_id, agent=agent, warrant=warrant, tool=tool,
                               params=params or {}, actors=self.actors, engine=self.engine,
-                              breakglass=self.breakglass)
+                              breakglass=self.breakglass, catalog=self.catalog,
+                              budget=self.budget, signatures=self.signatures,
+                              semantic=self.semantic)
             decision, reason, detail = gate_registry.run(ctx)
+            # A control in `monitor` strictness refuses nothing, but its shadow verdict belongs
+            # on the record - otherwise "monitoring" and "not installed" look identical.
+            shadow = {k: v for k, v in ctx.extra.items() if k.endswith("_monitor")}
+            if shadow:
+                detail = {**detail, **shadow}
+                # ... and on the reason too, because that is what the receipt and the console
+                # render. A control that is monitoring and one that is not installed must not
+                # look the same on the record.
+                marks = "; ".join(f"{k}: would deny · {v.get('reason', '')}"
+                                  for k, v in sorted(shadow.items()))
+                reason = f"{reason} · {marks}" if reason else marks
             if detail.get("break_glass"):
                 # A grant is single-use, and the spending is what makes it so: the claim is
                 # atomic, so when two calls race for one grant exactly one of them proceeds
@@ -299,6 +354,10 @@ class MCPProxy:
         except Exception as exc:                             # noqa: BLE001 - the record survives it
             result, outcome = None, "error"
             detail = {**detail, "upstream_error": f"{type(exc).__name__}: {exc}"[:200]}
+        # Charge the spend whether the call succeeded or failed: an attempt that reached the
+        # upstream is a thing that happened, and a budget that only counts successes can be
+        # walked around by making the calls fail.
+        self.budget.record(agent_id, tool, int(((result or {}).get("tokens") or 0)))
         receipt2 = self.registry.append(
             t=_clock(), decision=decision.value, agent=agent_id, tool=tool,
             warrant=agent.warrant,

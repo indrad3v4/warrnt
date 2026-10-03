@@ -1,0 +1,60 @@
+# The control catalog - the single source of truth (D3), re-read while the node runs (D9).
+#
+# Edit this file while the node is running: the next intercepted call already obeys it. That is
+# what the judges will try, so it is the first thing to demonstrate.
+#
+# strictness per control:  off | monitor | redact | block
+#   off      the control is not consulted
+#   monitor  consulted and recorded, can never change an outcome (a shadow rollout)
+#   redact   acts by stripping, the call still executes
+#   block    acts by refusing
+version: 1
+
+controls:
+  # every control: enabled, and how strictly it acts. See catalog.strict.yaml for the loud end
+  # of this scale and catalog.permissive.yaml for the quiet one.
+  action_taxonomy:   {enabled: true, strictness: block}   # what kind of act is this
+  budget:            {enabled: true, strictness: block}   # spend, checked before the order
+  actor_scope:       {enabled: true, strictness: block}   # what this kind of actor may never call
+  order_policy:      {enabled: true, strictness: block}   # what the signed order allows
+  # break_glass has no gate to switch off: the pause a named person opens is part of
+  # the kernel (it can only ever *raise* a decision), so it is listed here to be seen,
+  # not to be tuned. Listed with the rest so the catalog names every control.
+  break_glass:       {enabled: true, strictness: block}
+
+  pattern_inspector: {enabled: true,  strictness: block, threshold: 0.5}   # PII/secrets in content
+  signature_feed:    {enabled: true,  strictness: block}                  # known attack shapes
+  semantic_judge:    {enabled: false, strictness: block, threshold: 0.6}  # local model; opt-in
+
+# The models this node is willing to front. A call naming anything else is refused by
+# order_policy, so the list is a control and not a preference.
+allowed_models:
+  - local/llama3.2:3b
+  - local/qwen2.5:3b
+  - in-process/sandbox
+
+# Resource ceilings, most-specific-first: per_tool beats per_agent beats default.
+# A missing ceiling means "not enforced here", and the spend is recorded anyway.
+budgets:
+  default:            {requests: 200, tokens: 200000, window_s: 3600}
+  per_agent:
+    report-bot:       {requests: 20,  tokens: 20000}     # the analytics loop is cheap here
+  per_tool:
+    crm.bulk_export:  {requests: 2}                      # bulk egress is the expensive act
+
+# Compiled by the pattern inspector. Kept in the catalog so a reviewer can add a pattern
+# without touching Python.
+patterns:
+  personal_data: []
+  secrets: []
+
+# The attack-signature feed lives outside the codebase on purpose (D8): point this at a path
+# the operations team manages, and swapping the file needs no redeploy.
+signatures_path: signatures.yaml
+
+# The semantic half of the hybrid defence. Off by default: a judging box without a local model
+# must lose nothing, and the deterministic half stays authoritative either way (D4).
+semantic:
+  model: llama3.2:3b
+  endpoint: http://127.0.0.1:11434
+  timeout_ms: 1500

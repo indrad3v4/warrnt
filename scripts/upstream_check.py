@@ -27,6 +27,9 @@ import time
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from warrnt.seed import SEED_SPECS  # noqa: E402
+
 os.environ.setdefault("WARRNT_ADMIN_TOKEN", "operator-token")
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -153,7 +156,10 @@ def main() -> int:
               f"upstream={upstream_url}")
 
         tokens = demo.fetch_tokens(node_url)
-        check("three seed warrants issued in front of the real upstream", len(tokens) == 3)
+        # Against the seed table, not a remembered number: the seed set grew from three to four
+        # when the analytics agent arrived, and a hard-coded 3 kept this gate red.
+        check(f"the {len(SEED_SPECS)} seed warrants are issued in front of the real upstream",
+              len(tokens) == len(SEED_SPECS))
 
         # --- 1. the allowed read really crosses the wire -------------------------------
         allowed = demo.rpc(node_url, "support-copilot", tokens["support-copilot"],

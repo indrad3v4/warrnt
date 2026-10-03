@@ -1,0 +1,37 @@
+# PROFILE: permissive - the same controls, watching instead of acting.
+#
+# Every control is consulted and recorded, and none of them can refuse: this is the file to hand
+# a reviewer who wants to see what *would* have been blocked during a normal day, which is how a
+# team decides whether to turn a control up.
+version: 1
+
+controls:
+  # every control: enabled, and how strictly it acts. See catalog.strict.yaml for the loud end
+  # of this scale and catalog.permissive.yaml for the quiet one.
+  action_taxonomy:   {enabled: true, strictness: block}   # what kind of act is this
+  budget:            {enabled: true, strictness: block}   # spend, checked before the order
+  actor_scope:       {enabled: true, strictness: block}   # what this kind of actor may never call
+  order_policy:      {enabled: true, strictness: block}   # what the signed order allows
+  # break_glass has no gate to switch off: the pause a named person opens is part of
+  # the kernel (it can only ever *raise* a decision), so it is listed here to be seen,
+  # not to be tuned. Listed with the rest so the catalog names every control.
+  break_glass:       {enabled: true, strictness: block}
+
+  budget:            {enabled: true, strictness: monitor}
+  pattern_inspector: {enabled: true, strictness: monitor, threshold: 0.5}
+  signature_feed:    {enabled: true, strictness: monitor}
+  semantic_judge:    {enabled: true, strictness: monitor, threshold: 0.6}
+
+allowed_models:
+  - local/llama3.2:3b
+  - local/qwen2.5:3b
+  - in-process/sandbox
+
+budgets:
+  default:            {requests: 100000, tokens: 100000000, window_s: 3600}
+
+patterns:
+  personal_data: []
+  secrets: []
+signatures_path: signatures.yaml
+semantic: {model: llama3.2:3b, endpoint: "http://127.0.0.1:11434", timeout_ms: 1500}

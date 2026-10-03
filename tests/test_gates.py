@@ -30,7 +30,8 @@ def _proxy(tmp_path) -> MCPProxy:
 
 
 def test_the_gates_come_from_the_plugin_package_in_a_fixed_order():
-    assert gates.load() == ["act_class", "actor_scope", "break_glass", "order_policy"]
+    assert gates.load() == ["act_class", "budget", "pattern_inspector", "signature_feed", "semantic_judge",
+                                          "actor_scope", "break_glass", "order_policy"]
     assert [g.order for g in gates.ordered()] == sorted(g.order for g in gates.ordered())
 
 
@@ -104,7 +105,8 @@ def test_a_gate_can_be_swapped_at_runtime(tmp_path):
         unregister("order_policy")
         sys.modules.pop("warrnt.plugins.order_policy", None)
         gates.load()
-        assert gates.names() == ["act_class", "actor_scope", "break_glass", "order_policy"]
+        assert gates.names() == ["act_class", "budget", "pattern_inspector", "signature_feed", "semantic_judge",
+                                          "actor_scope", "break_glass", "order_policy"]
 
 
 def test_a_duplicate_gate_name_is_refused_unless_it_is_a_deliberate_swap():
@@ -121,4 +123,5 @@ def test_a_duplicate_gate_name_is_refused_unless_it_is_a_deliberate_swap():
     gates._LOADED = False
     sys.modules.pop("warrnt.plugins.act_class", None)
     gates.load()
-    assert gates.names() == ["act_class", "actor_scope", "break_glass", "order_policy"]
+    assert gates.names() == ["act_class", "budget", "pattern_inspector", "signature_feed", "semantic_judge",
+                                          "actor_scope", "break_glass", "order_policy"]

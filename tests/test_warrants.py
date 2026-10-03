@@ -1,3 +1,6 @@
+"""Tests for the order issuer."""
+
+import os
 """Brick 1 - the order: a signed, TTL-bounded identity."""
 from warrnt.models import WarrantSpec
 from warrnt.warrants import WarrantIssuer, refresh_state, remaining
@@ -61,4 +64,7 @@ def test_issuer_persists_key_to_file(tmp_path):
     second = WarrantIssuer.from_env_or_file(str(path))
     assert path.exists()
     assert first.key == second.key
-    assert oct(path.stat().st_mode)[-3:] == "600"
+    # POSIX file modes do not exist on Windows - chmod is a no-op and st_mode reports 666. The
+    # claim under test is "the key is written private where private is a thing".
+    if os.name != "nt":
+        assert oct(path.stat().st_mode)[-3:] == "600"

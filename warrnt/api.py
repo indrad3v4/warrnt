@@ -35,15 +35,19 @@ and prints it once at startup.
 """
 from __future__ import annotations
 
+import csv
 import hmac
+import io
+import json
 import os
 import secrets
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import FastAPI, Header, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from .actions import classify
@@ -140,6 +144,18 @@ def build_proxy(settings: Settings) -> MCPProxy:
     return proxy
 
 
+def _as_iso(value: str) -> str:
+    """Accept an epoch second, a date or an ISO instant for `since` - a reviewer should not have
+    to know which of the three this node happens to write."""
+    text = str(value).strip()
+    if not text:
+        return ""
+    try:
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(float(text)))
+    except ValueError:
+        return text
+
+
 def create_app(settings: Optional[Settings] = None, seed: bool = True) -> FastAPI:
     settings = settings or Settings.load()
 
@@ -218,6 +234,67 @@ def create_app(settings: Optional[Settings] = None, seed: bool = True) -> FastAP
                                 status_code=500)
         return HTMLResponse(path.read_text(encoding="utf-8"))
 
+    @app.get("/api/catalog")
+    def catalog_view() -> JSONResponse:
+        """The controls a reviewer turns, and how strictly each one acts (D3).
+
+        Reads are open on purpose: the operator's own screen has to be able to see the knobs.
+        Changing them is a file edit - see /api/catalog/reload to make one take effect now.
+        """
+        return JSONResponse(proxy().catalog.summary())
+
+    @app.get("/api/budget")
+    def budget_view() -> JSONResponse:
+        """What each agent has spent inside its window (D7) - resource consumption, not a guess."""
+        return JSONResponse({"spend": proxy().budget.snapshot()})
+
+    @app.post("/api/catalog/reload")
+    def catalog_reload(x_warrnt_admin: str = Header(default="")) -> JSONResponse:
+        """Force a re-read of the catalog (operator token).
+
+        The file is already re-read whenever its mtime moves, so this is the explicit form of
+        the same thing: it is what a reviewer presses after editing a threshold, and it answers
+        with the settings now in force rather than a bare ok.
+        """
+        denied = require_admin(x_warrnt_admin)
+        if denied is not None:
+            return denied
+        changed = proxy().catalog.reload(force=True)
+        return JSONResponse({"reloaded": changed, **proxy().catalog.summary()})
+
+    @app.get("/api/signatures")
+    def signatures_view() -> JSONResponse:
+        """The attack feed the node is enforcing right now (D8, brief 4.4).
+
+        Operations owns the file; this is the view a person needs to answer "is the node
+        actually checking against the current revision, and what is in it".
+        """
+        feed = proxy().signatures
+        return JSONResponse({**feed.summary(),
+                             "signatures": [s.as_detail() for s in feed.signatures]})
+
+    @app.post("/api/signatures/reload")
+    def signatures_reload(x_warrnt_admin: str = Header(default="")) -> JSONResponse:
+        """Force a re-read of the feed (operator token) and answer with what is now in force."""
+        denied = require_admin(x_warrnt_admin)
+        if denied is not None:
+            return denied
+        changed = proxy().signatures.reload(force=True)
+        return JSONResponse({"reloaded": changed, **proxy().signatures.summary()})
+
+    @app.get("/api/semantic")
+    def semantic_view() -> JSONResponse:
+        """The judging box: which model, and whether it is answering (brief 4.2).
+
+        Reads only. It does not call the model - asking here must not load a box during a demo.
+        """
+        judge = proxy().semantic
+        control = proxy().catalog.control("semantic_judge")
+        return JSONResponse({**judge.summary(), "enabled": control.enabled,
+                             "consulted": proxy().catalog.consulted("semantic_judge"),
+                             "strictness": proxy().catalog.strictness("semantic_judge"),
+                             "threshold": proxy().catalog.threshold("semantic_judge", 0.6)})
+
     @app.get("/health")
     def health() -> dict[str, Any]:
         return {"ok": True, "node": "warrnt", "chain": chain_view()}
@@ -253,6 +330,78 @@ def create_app(settings: Optional[Settings] = None, seed: bool = True) -> FastAP
             "verdict": verdict,
             "history": hist,
         }
+
+    # ------------------------------------------------------------------ 4.5 the export
+    # The security team asked for evidence they can take away and check without this node, so the
+    # export is self-contained: the rows, the chain verdict, the anchor, and the revisions of the
+    # controls that were in force. An export that needs its exporter to explain it is not
+    # evidence, it is a screenshot.
+    @app.get("/export")
+    def export(format: str = "json", agent: str = "", decision: str = "",  # noqa: A002
+               since: str = "", limit: int = 0) -> Response:
+        """Export the receipt chain as evidence: `?format=csv`, `json` or `jsonl`.
+
+        The filters are the ones a reviewer reaches for - one agent, one kind of decision,
+        everything after a time - and they filter the ROWS only. The chain verdict and the anchor
+        always describe the whole chain, because a filtered view of a chain is not a chain.
+        """
+        fmt = (format or "json").strip().lower()
+        if fmt not in ("csv", "json", "jsonl"):
+            return JSONResponse({"error": f"format must be csv, json or jsonl, not {format!r}"},
+                                status_code=400)
+
+        p = proxy()
+        rows = list(p.registry.entries)
+        if agent:
+            rows = [r for r in rows if r.get("agent") == agent]
+        if decision:
+            rows = [r for r in rows if r.get("decision") == decision]
+        if since:
+            rows = [r for r in rows if max(str(r.get("t") or ""), str(r.get("ts") or "")) >=
+                    max(since, _as_iso(since))]
+        if limit and limit > 0:
+            rows = rows[-limit:]
+
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        filename = f"warrnt-export-{time.strftime('%Y%m%d-%H%M%S', time.gmtime())}.{fmt}"
+        headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+
+        if fmt == "csv":
+            buf = io.StringIO()
+            writer = csv.writer(buf, lineterminator="\n")
+            writer.writerow(("seq", "t", "ts", "decision", "agent", "tool", "warrant", "reason",
+                             "rows_after", "outcome", "receipt_hash", "prev_hash"))
+            for i, row in enumerate(rows):
+                writer.writerow([i + 1] + [row.get(col, "") for col in
+                                           ("t", "ts", "decision", "agent", "tool", "warrant",
+                                            "reason", "rows_after", "outcome", "hash", "prev")])
+            return Response(content=buf.getvalue(), media_type="text/csv", headers=headers)
+
+        if fmt == "jsonl":
+            body = "\n".join(json.dumps(r, sort_keys=True) for r in rows)
+            return Response(content=body, media_type="application/x-ndjson", headers=headers)
+
+        return JSONResponse({
+            "exported_at": stamp,
+            "node": "warrnt",
+            "exporter": "GET /export",
+            "rows_total": len(rows),
+            "filter": {"agent": agent, "decision": decision, "since": since, "limit": limit},
+            "chain": chain_view(),
+            "anchor": anchor(),
+            "controls_in_force": {
+                "catalog_version": p.catalog.version,
+                "controls": p.catalog.summary().get("controls", {}),
+                "signature_feed": {"version": p.signatures.version,
+                                   "source": p.signatures.source,
+                                   "count": len(p.signatures.signatures),
+                                   "ok": p.signatures.ok},
+            },
+            "note": ("The chain verdict covers the whole chain; the rows may be filtered. Verify "
+                     "a row by recomputing the chain from genesis - receipt_hash and prev_hash "
+                     "are the inputs."),
+            "receipts": rows,
+        }, headers=headers)
 
     @app.get("/receipts")
     def receipts() -> list[dict[str, Any]]:

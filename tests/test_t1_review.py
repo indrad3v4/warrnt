@@ -59,7 +59,14 @@ def test_actions_file_is_created_with_mode_0600(tmp_path):
         call(c, "deploy-agent", "infra.deploy", {"target": "prod"})
     actions_path = tmp_path / "actions.jsonl"
     mode = stat.S_IMODE(os.stat(actions_path).st_mode)
-    assert mode == 0o600, oct(mode)
+    # POSIX file modes do not exist on Windows: chmod is a no-op there and st_mode reports 666,
+    # so this is red on a Windows checkout of an otherwise green master. The claim under test is
+    # "the store is written private where private is a thing" - the same guard test_warrants.py
+    # already uses for the issuer's key.
+    if os.name != "nt":
+        assert mode == 0o600, oct(mode)
+    else:
+        assert actions_path.exists()
 
 
 def test_allowed_action_row_carries_no_values(tmp_path):

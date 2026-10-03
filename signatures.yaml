@@ -1,0 +1,59 @@
+# The attack-signature feed (brief 4.4). Operations owns this file; the node re-reads it when it
+# changes, so a new shape takes effect on the next call with no redeploy.
+#
+# Every entry needs: id, kind, severity, pattern, and where it came from. The node refuses a feed
+# without a version, because a refusal that cites a shape has to be able to cite the revision.
+version: 2026.10.03.1
+source: bundled - OWASP LLM Top 10 (LLM01) and MITRE ATLAS techniques
+updated: "2026-10-03T17:40:00Z"
+
+signatures:
+  - id: SIG-INJ-0001
+    kind: injection
+    severity: high
+    pattern: '(?i)ignore\s+(?:all\s+)?(?:the\s+)?(?:previous|prior|above|earlier)\s+(?:instruction|prompt|rule|direction)'
+    source: 'OWASP LLM01 - Prompt Injection'
+    note: the canonical override, arriving inside content the agent retrieved
+
+  - id: SIG-INJ-0002
+    kind: injection
+    severity: high
+    pattern: '(?i)\b(?:you are now|from now on you|act as if you|pretend to be|developer mode|jailbreak)\b'
+    source: 'OWASP LLM01 - Prompt Injection'
+    note: an attempt to replace the role rather than add to it
+
+  - id: SIG-INJ-0003
+    kind: injection
+    severity: high
+    pattern: '(?i)\b(?:reveal|print|repeat|show|leak)\b[^.\n]{0,30}\b(?:system\s*prompt|your\s+instructions|hidden\s+rule)'
+    source: 'OWASP LLM06 - Sensitive Information Disclosure'
+    note: fishing for the system prompt
+
+  - id: SIG-EXF-0001
+    kind: exfiltration
+    severity: high
+    pattern: '(?i)\b(?:send|post|upload|forward|exfiltrate)\b[^.\n]{0,40}\b(?:to|at)\b[^.\n]{0,30}(?:https?://|@)'
+    source: 'MITRE ATLAS AML.T0024 - Exfiltration via ML inference API'
+    note: an instruction to move data outward, inside content
+
+  - id: SIG-EXF-0002
+    kind: exfiltration
+    severity: medium
+    pattern: '(?i)https?://[^\s"]*(?:webhook\.site|requestbin|pastebin|ngrok|interact\.sh|burpcollaborator)'
+    source: 'MITRE ATLAS AML.T0024'
+    note: a known collection endpoint
+
+  - id: SIG-SSRF-0001
+    kind: ssrf
+    severity: high
+    pattern: '(?i)\b(?:169\.254\.169\.254|metadata\.google\.internal|metadata\.azure\.com)\b'
+    source: 'OWASP LLM Top 10 - LLM05, cloud metadata'
+    note: reaching the cloud metadata service from an agent call. The loopback is deliberately not a signature - this node and its tests run on it
+
+  - id: SIG-TOOL-0001
+    kind: tool_abuse
+    severity: medium
+    scope: content
+    pattern: '(?i)\b(?:payments\.transfer|infra\.deploy|admin\.)\b'
+    source: 'house rule - a destructive tool named inside content'
+    note: content asking for a tool the agent may not reach. Scoped to content on purpose - a rule about the CALL belongs to the actor and order gates, and a feed that answers first moves a refusal away from the gate that owes the reason

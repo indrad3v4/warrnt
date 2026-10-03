@@ -8,6 +8,10 @@ WARRNT_UPSTREAM     real MCP endpoint to front; unset -> in-process sandbox
 WARRNT_HOST/PORT    bind address for ``warrnt serve``
 WARRNT_ADMIN_TOKEN  operator token for mutating routes (unset -> one is generated and
                     printed once at startup; mutating routes answer 401 without it)
+WARRNT_CATALOG      the control catalog (default: ``catalog.yaml`` at the repo root) - the
+                    single source of truth for controls, thresholds, allowed models and
+                    budgets (D3). Re-read while the node runs, so an edit is obeyed by the
+                    next call (D9).
 """
 from __future__ import annotations
 

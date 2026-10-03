@@ -26,6 +26,11 @@ import time
 import urllib.request
 from pathlib import Path
 
+# The control plane is not anonymous (finding V1): the node this script boots must be told the
+# operator token, or the demo vector dies at the revoke step with a 401. The other four gate
+# scripts set it the same way.
+os.environ.setdefault("WARRNT_ADMIN_TOKEN", "operator-token")
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))

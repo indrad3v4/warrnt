@@ -1,0 +1,38 @@
+# PROFILE: strict - everything on, the loud end of every scale.
+#
+# Use it to show a reviewer what the layer does when it is told to be certain: nothing is
+# monitored, nothing is shadowed, and the semantic judge is on (it still fails closed if the
+# model is unreachable).
+version: 1
+
+controls:
+  # every control: enabled, and how strictly it acts. See catalog.strict.yaml for the loud end
+  # of this scale and catalog.permissive.yaml for the quiet one.
+  action_taxonomy:   {enabled: true, strictness: block}   # what kind of act is this
+  budget:            {enabled: true, strictness: block}   # spend, checked before the order
+  actor_scope:       {enabled: true, strictness: block}   # what this kind of actor may never call
+  order_policy:      {enabled: true, strictness: block}   # what the signed order allows
+  # break_glass has no gate to switch off: the pause a named person opens is part of
+  # the kernel (it can only ever *raise* a decision), so it is listed here to be seen,
+  # not to be tuned. Listed with the rest so the catalog names every control.
+  break_glass:       {enabled: true, strictness: block}
+
+  pattern_inspector: {enabled: true, strictness: block,  threshold: 0.2}
+  signature_feed:    {enabled: true, strictness: block}
+  semantic_judge:    {enabled: true, strictness: block,  threshold: 0.4}
+
+allowed_models:
+  - local/llama3.2:3b
+
+budgets:
+  default:            {requests: 50,  tokens: 50000, window_s: 900}
+  per_agent:
+    report-bot:       {requests: 5,   tokens: 5000}
+  per_tool:
+    crm.bulk_export:  {requests: 1}
+
+patterns:
+  personal_data: []
+  secrets: []
+signatures_path: signatures.yaml
+semantic: {model: llama3.2:3b, endpoint: "http://127.0.0.1:11434", timeout_ms: 1500}

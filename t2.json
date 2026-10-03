@@ -1,0 +1,57 @@
+[
+  {
+    "agent": "fin-reconcile",
+    "tool": "payments.read",
+    "decision": "deny",
+    "reason": "unknown agent identity or bad token",
+    "note": "read inside scope"
+  },
+  {
+    "agent": "support-copilot",
+    "tool": "crm.read",
+    "decision": "deny",
+    "reason": "unknown agent identity or bad token",
+    "note": "read inside scope"
+  },
+  {
+    "agent": "support-copilot",
+    "tool": "crm.bulk_export",
+    "decision": "deny",
+    "reason": "unknown agent identity or bad token",
+    "note": "PII export outside warrant scope"
+  },
+  {
+    "proof": "upstream executions of crm.bulk_export",
+    "before": 0,
+    "after": 0,
+    "rows_left_perimeter": 0
+  },
+  {
+    "agent": "support-copilot",
+    "decision": "revoked",
+    "observed_on_next_call": false,
+    "stop_latency_s": null
+  },
+  {
+    "chain": {
+      "ok": true,
+      "length": 25,
+      "head": "4507a5e3971f712e",
+      "history": {
+        "rotations": 0,
+        "archived_rows": 0,
+        "last_closed_head": null,
+        "archives_ok": true,
+        "problems": []
+      },
+      "anchor": {
+        "anchored": true,
+        "ok": true,
+        "signed": true,
+        "head": "4507a5e3971f712e",
+        "length": 25,
+        "anchors": 26
+      }
+    }
+  }
+]

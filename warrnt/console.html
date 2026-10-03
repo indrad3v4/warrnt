@@ -14,11 +14,22 @@
   }
   *{margin:0;padding:0;box-sizing:border-box}
   html,body{height:100%;overflow:hidden;background:var(--bg)}
+  /* One declared row per child. This is a no-scroll board at the size it was drawn for: header,
+     the 2x2 tiles, then one strip per concern, then the footer. The four strips below the tiles
+     were added after that row list was written, so they shared the single `auto` row with the
+     footer and were placed by accident - painted on top of one another and over the footer.
+     Grid placement is not a suggestion; every child gets a row. Below the design size the page
+     scrolls instead (see RESPONSIVE at the end of this sheet): nothing may ever be drawn twice
+     in the same place. */
   body{
     color:var(--ink);
     font-family:"Nimbus Sans","Helvetica Neue",Helvetica,Arial,sans-serif;
     font-size:13px;line-height:1.35;
-    display:grid;grid-template-rows:52px 1fr auto 30px;
+    /* rows follow document order: header, the 2x2 tiles, the four strips, the footer. The
+       strips used to sit INSIDE the footer element, so the footer's flex row laid them out
+       beside its own counters and crushed them to 412px and 343px - which is what put a
+       two-line label in a 55px column and drew the strips over one another. */
+    display:grid;grid-template-rows:52px minmax(0,1fr) repeat(4,auto) 30px;
     -webkit-font-smoothing:antialiased;
   }
   .mono{font-family:"DejaVu Sans Mono","SFMono-Regular",Menlo,Consolas,monospace}
@@ -98,7 +109,10 @@
   .metric .l{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin-top:2px;white-space:nowrap}
   .metric.acc .n{color:var(--acc)} .metric.red .n{color:var(--deny)} .metric.ok .n{color:var(--ok)}
 
-  .killmid{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:0;padding:6px 13px}
+  /* min-height:0 let this collapse to ~12px in a short tile, so the 56px button was painted
+     straight over the target selector above it. The kill switch is the one control that
+     must never move under the operator's cursor. */
+  .killmid{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:112px;padding:6px 13px}
   #revoke{width:min(74%,340px);border:none;border-radius:12px;cursor:pointer;
     background:linear-gradient(180deg,#e2413a,#b3261f);color:#fff;font-family:inherit;font-weight:800;
     letter-spacing:.16em;text-transform:uppercase;font-size:17px;padding:16px 10px;
@@ -183,6 +197,37 @@ button.btn:disabled{opacity:.45;cursor:default}
 #ins h3{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:#b9c5d2;margin-bottom:10px}
 #ins pre{font-size:12px;color:#cfe0f5;white-space:pre-wrap}
 #ins .close{float:right;cursor:pointer;color:var(--mut)}
+
+/* ---------- RESPONSIVE · below the design size the board scrolls instead of overlapping ----
+   The no-scroll layout above is an assertion about the size the console is presented at, not a
+   licence to hide content. A reviewer on a laptop panel (a VS Code Simple Browser is ~1150x700)
+   gets a page that scrolls, with every tile at a readable height and every column reachable:
+   nothing is clipped, nothing is drawn twice. The QA hook still sees scrollH==innerH at the
+   presentation size, where this block does not apply. */
+@media (max-width:1399px), (max-height:999px){
+  html,body{height:auto;min-height:100%;overflow:auto}
+  body{display:flex;flex-direction:column;gap:8px;padding:8px}
+  header{flex-wrap:wrap;gap:8px 16px;min-height:52px;padding:8px 12px}
+  .clock{white-space:nowrap}
+  main{flex:0 0 auto;display:grid;grid-template-columns:1fr 1fr;
+       grid-auto-rows:minmax(210px,auto);gap:8px;padding:0}
+  /* a tile may not squeeze its own content: the row grows to fit instead */
+  .tile{min-height:210px}
+  /* columns keep readable widths and the tile scrolls sideways rather than crushing them */
+  .scroll table{min-width:540px}
+  #revoke{width:min(78%,300px);font-size:14px;padding:12px 8px}
+  .killlog{max-height:120px}
+  footer{flex-wrap:wrap;gap:10px 22px;min-height:30px;padding:6px 14px;margin-top:auto}
+  .taxo .cells{grid-template-columns:repeat(6,minmax(0,1fr))}
+}
+@media (max-width:980px){
+  main{grid-template-columns:1fr;grid-auto-rows:minmax(200px,auto)}
+  .thesis{display:none}
+  .taxo .cells{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .holdwrap{grid-template-columns:1fr}
+  .scroll table{min-width:480px}
+  #revoke{font-size:13px}
+}
 </style>
 </head>
 <body>
@@ -260,14 +305,6 @@ button.btn:disabled{opacity:.45;cursor:default}
   <div class="cells" id="bgCells"></div>
 </section>
 
-<footer>
-  <div class="k">Chain integrity <b id="kChain" class="up">—</b></div>
-  <div class="k">Receipts <b id="kRec">0</b></div>
-  <div class="k">Outside-perimeter executions <b id="kOut" class="up">0</b></div>
-  <div class="k">Time to stop <b id="kStop">—</b></div>
-  <div class="k">Stopped agents <b id="kRev">0</b></div>
-  <div class="k">Anchored head <b id="kAnchor">—</b></div>
-  <div class="r" id="footR">HackYeah 2026 · Partner Task: AI Control Layer · one node, MCP interception</div>
 
 <!-- 07. HUMAN HOLD + HERMES CONTROL (PR-14) -->
 <section class="taxo" aria-label="Human hold and Hermes control">
@@ -295,12 +332,21 @@ button.btn:disabled{opacity:.45;cursor:default}
   <div class="tl" id="tlStrip"><div class="hcell empty">No action yet.</div></div>
 </section>
 
+<footer>
+  <div class="k">Chain integrity <b id="kChain" class="up">—</b></div>
+  <div class="k">Receipts <b id="kRec">0</b></div>
+  <div class="k">Outside-perimeter executions <b id="kOut" class="up">0</b></div>
+  <div class="k">Time to stop <b id="kStop">—</b></div>
+  <div class="k">Stopped agents <b id="kRev">0</b></div>
+  <div class="k">Anchored head <b id="kAnchor">—</b></div>
+  <div class="r" id="footR">HackYeah 2026 · Partner Task: AI Control Layer · one node, MCP interception</div>
+</footer>
+
 <div id="ins" aria-label="Action inspector"><div class="box">
   <span class="close" id="insX">✕ close (esc)</span>
   <h3 id="insT">Action inspector</h3>
   <pre id="insB">—</pre>
 </div></div>
-</footer>
 
 <script>
 /* ============================================================================
@@ -340,14 +386,18 @@ function ttlCell(ttl,ttl0){
   return '<div class="ttl '+(cls==='expired'?'crit':cls)+'"><div class="bar">'+bar
        +'</div><div class="t">'+(ttl<=0?'exp':fmtT(ttl))+'</div></div>';
 }
+/* An attribute needs its own escaping: a quote inside a warrant id would otherwise end the
+   attribute early and produce markup the browser silently reshapes. */
+const attr = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+
 function renderAgents(){
   $('agBody').innerHTML = S.agents.map(a=>{
     const halted = a.state==='halted';
     return '<tr class="'+(halted?'halted':'')+'">'
-      +'<td><div class="aid">'+a.id+'</div><div class="sub">'+(a.role||'')+'</div></td>'
+      +'<td title="'+attr(a.id+(a.role? ' · '+a.role : ''))+'"><div class="aid">'+a.id+'</div><div class="sub">'+(a.role||'')+'</div></td>'
       +'<td>'+pill(a.state)+'</td>'
-      +'<td class="mono">'+(halted&&a.warrant? '<span style="color:#f85149;text-decoration:line-through">'+a.warrant+'</span>' : a.warrant)+'</td>'
-      +'<td>'+a.last+'</td>'
+      +'<td class="mono" title="'+attr(a.warrant)+'">'+(halted&&a.warrant? '<span style="color:#f85149;text-decoration:line-through">'+a.warrant+'</span>' : a.warrant)+'</td>'
+      +'<td title="'+attr(a.last)+'">'+a.last+'</td>'
       +'<td>'+(halted? '<span class="sub">stopped</span>' : ttlCell(a.ttl,a.ttl0))+'</td>'
       +'</tr>';
   }).join('');
@@ -360,8 +410,8 @@ function renderWarrants(){
     const sig = w.sig_ok===false? '<span class="pill p-deny">bad</span>'
               : '<span class="pill p-allow" title="'+w.sig+'">ok</span>';
     return '<tr class="'+(dead?'halted':'')+'">'
-      +'<td class="mono">'+w.id+'</td><td>'+w.agent+'</td>'
-      +'<td class="sub" style="font-size:12px;color:#9aa7b6">'+w.scope+'</td>'
+      +'<td class="mono" title="'+attr(w.id)+'">'+w.id+'</td><td title="'+attr(w.agent)+'">'+w.agent+'</td>'
+      +'<td class="sub" style="font-size:12px;color:#9aa7b6" title="'+attr(w.scope)+'">'+w.scope+'</td>'
       +'<td>'+sig+'</td>'
       +'<td>'+pill(w.state)+'</td>'
       +'<td>'+(dead? '<span class="sub">—</span>' : ttlCell(w.ttl,w.ttl0))+'</td>'
@@ -740,12 +790,67 @@ if(QA){
       return b.left>=a.left-0.5&&b.right<=a.right+0.5&&b.top>=a.top-0.5&&b.bottom<=a.bottom+0.5;};
     const spills=[].concat(...cells.map(c=>[...c.children].filter(ch=>!inside(c,ch)))).length;
     const clipped=[].concat(...cells.map(c=>[...c.children].filter(ch=>ch.scrollHeight>ch.clientHeight+1))).length;
-    const cellsOk = cells.length===6 && cells.every(c=>{const r=c.getBoundingClientRect();
-      return r.top>0 && r.bottom<=window.innerHeight+0.5 && r.width>80;}) && spills===0;
+    /* Complete is a different question from in-view: the cells must always be laid out and must
+       not spill, but whether they sit inside the current viewport only matters in the mode that
+       claims to show everything at once. Conflating the two failed every scrolled size. */
+    const cellsComplete = cells.length===6 && spills===0;
+    const cellsInView = cells.every(c=>{const r=c.getBoundingClientRect();
+      return r.top>0 && r.bottom<=window.innerHeight+0.5 && r.width>80;});
+    const cellsOk = cellsComplete && cellsInView;
+    /* The invariants a reviewer's screen must satisfy at ANY size - each one is a defect found
+       in review, expressed so a machine can fail. The no-scroll contract holds only in the mode
+       that claims it; these hold always. */
+    const revoke=document.getElementById('revoke'), select=document.getElementById('target');
+    let revokeOverTarget=false;
+    if(revoke && select){
+      const a=revoke.getBoundingClientRect(), c=select.getBoundingClientRect();
+      revokeOverTarget = a.top<c.bottom && a.bottom>c.top && a.left<c.right && a.right>c.left;
+    }
+    const cut=[...document.querySelectorAll('.tile,.taxo,footer')].filter(el=>{
+      const s=getComputedStyle(el);
+      return (s.overflow==='hidden'||s.overflowY==='hidden') &&
+             (el.scrollHeight>el.clientHeight+2 || el.scrollWidth>el.clientWidth+2);})
+      .map(el=>el.tagName.toLowerCase()+'.'+(el.className||''));
+    const squeezed=[...document.querySelectorAll('footer *,.holds *,.taxo .cell *')].filter(e=>{
+      const r=e.getBoundingClientRect();
+      return r.width>0 && r.height>26 && r.height/Math.max(1,r.width)>1.6 && e.children.length<3;})
+      .map(e=>(e.className||e.tagName));
+    const flow=[...document.body.children].filter(e=>{
+      const s=getComputedStyle(e);
+      return s.position!=='fixed' && s.display!=='none' && e.id!=='qa-report' &&
+             e.tagName!=='SCRIPT';});
+    const rects=flow.map(e=>e.getBoundingClientRect());
+    const overlaps=[];
+    for(let i=0;i<rects.length;i++) for(let j=i+1;j<rects.length;j++){
+      const A=rects[i], B=rects[j];
+      if(Math.min(A.bottom,B.bottom)-Math.max(A.top,B.top)>4 &&
+         Math.min(A.right,B.right)-Math.max(A.left,B.left)>4)
+        overlaps.push(flow[i].tagName.toLowerCase()+'∩'+flow[j].tagName.toLowerCase());}
+    const scrollMode = getComputedStyle(document.body).display==='flex';
+    const pageScrolls = de.scrollHeight>de.clientHeight+2 || de.scrollWidth>de.clientWidth+2;
+    const allInView = tiles.every(t=>t.ok);
+    const ok = overlaps.length===0 && !revokeOverTarget && cut.length===0 &&
+               squeezed.length===0 && spills===0 && cellsComplete &&
+               (scrollMode ? true : (allInView && !pageScrolls && cellsInView));
+
     const qa=document.createElement('div'); qa.id='qa-report';
     qa.dataset.tiles=JSON.stringify(tiles);
-    qa.textContent='QA source='+MODE+' scrollH='+de.scrollHeight+' innerH='+window.innerHeight
-      +' tiles='+tiles.length+' cellSpills='+spills+' cellClipped='+clipped+' bodyOverflowX='+(de.scrollWidth>de.clientWidth)+' allInView='+tiles.every(t=>t.ok);
+    qa.dataset.ok=String(ok);
+    qa.dataset.mode=scrollMode?'scroll':'board';
+    qa.dataset.overlaps=String(overlaps.length);
+    qa.dataset.revokeOverTarget=String(revokeOverTarget);
+    qa.dataset.cut=String(cut.length);
+    qa.dataset.squeezed=String(squeezed.length);
+    qa.textContent='QA ok='+ok+' source='+MODE+' mode='+(scrollMode?'scroll':'board')
+      +' vp='+window.innerWidth+'x'+window.innerHeight
+      +' scrollH='+de.scrollHeight+' innerH='+window.innerHeight
+      +' overflowY='+getComputedStyle(document.body).overflowY
+      +' tiles='+tiles.length+' cellSpills='+spills+' cellClipped='+clipped
+      +' bodyOverflowX='+(de.scrollWidth>de.clientWidth)+' allInView='+allInView
+      +' overlaps='+(overlaps.length?overlaps.join(' '):'0')
+      +' revokeOverTarget='+revokeOverTarget
+      +' unreachableContent='+(cut.length?cut.join(' '):'0')
+      +' squeezed='+(squeezed.length?squeezed.join(' '):'0');
     document.body.appendChild(qa);
   },1600);
 }
