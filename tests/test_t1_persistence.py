@@ -127,6 +127,38 @@ def test_revoked_agent_expires_a_pending_action_across_a_restart(tmp_path):
         assert c2.get("/state").json()["executor_calls"].get("infra.deploy", 0) == 0
 
 
+def test_a_hold_the_brake_ended_records_when_it_died(tmp_path):
+    """The boot path that expires a halted agent's holds stamps WHEN it died (Amendment 2).
+
+    A note on how this is reached, because it is not an everyday path: both ``POST /revoke`` and
+    its alias expire a pending hold eagerly through ``resolve_hold``, which already stamps
+    ``decided_ts``. The boot path exists for the case a crash leaves behind - the halt persisted,
+    the hold's expiry never run - and that is what this test constructs: the hold is real (created
+    through the API), the halt is applied the way a restart would find it, and the method the boot
+    calls is invoked directly.
+
+    What it pins: the expiry carries a clock like a person's decision does, and ``decided_by`` is
+    never invented - the kernel ended this row, and a name in that field would be a lie in the
+    record.
+    """
+    settings = make_settings(tmp_path)
+    with TestClient(create_app(settings=settings), headers={"X-WARRNT-Admin": ADMIN}) as c:
+        action_id = call(c, "deploy-agent", "infra.deploy")["error"]["data"]["action_id"]
+        before = c.get(f"/api/actions/{action_id}").json()
+        assert before["state"] == "pending" and before["decided_ts"] == 0.0
+
+        kernel = c.app.state.proxy
+        # As a restart finds it: the agent is halted, and the hold was never resolved.
+        kernel.agents["deploy-agent"].state = "halted"
+        assert kernel._expire_holds_of_halted_agents() == 1, "the boot expiry found the hold"
+
+        after = c.get(f"/api/actions/{action_id}").json()
+        assert after["state"] == "expired", "a state, never a decision"
+        assert after["decided_ts"] > 0, "the kernel stamped WHEN the hold died"
+        assert after["decided_by"] == before["decided_by"], "no decider is invented for a brake"
+        assert after["upstream_contacted"] is False
+        assert "values" not in after, "a row that can no longer execute carries no values"
+
 def test_hold_expires_on_restart_after_revoke_first(tmp_path):
     """Order 2: revoke first, restart - the hold is still expired, never approved by restart."""
     settings = make_settings(tmp_path)

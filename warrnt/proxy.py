@@ -192,6 +192,12 @@ class MCPProxy:
                 if action is None:
                     continue
                 action.state = "expired"
+                # WHEN the hold died is part of the state, not decoration: the resolve path stamps
+                # `decided_ts` when a PERSON decides (proxy.resolve_hold), so a hold the brake ended
+                # stamps the same field and the console can print one clock for both. No person did
+                # this, so `decided_by` stays as it is - the row is decided by the kernel, never by
+                # an invented name (AGENTS.md Amendment 2).
+                action.decided_ts = self._now()
                 action.upstream_contacted = False
                 action.values = {}
                 action.kept_for_hold = False
